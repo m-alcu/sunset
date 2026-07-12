@@ -23,6 +23,15 @@ cmake --build build -j
 ./build/sunset
 ```
 
+On Windows (MSVC), download the [SDL3 VC devel package](https://github.com/libsdl-org/SDL/releases)
+and point CMake at it; timezone conversion uses C++20 `std::chrono` there
+instead of the POSIX tz database:
+
+```sh
+cmake -B build -DCMAKE_PREFIX_PATH=C:/path/to/SDL3-3.2.16
+cmake --build build --config Release
+```
+
 ## Usage
 
 - Pick a city (type in the combo to filter) and a year (1900–2100).

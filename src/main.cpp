@@ -11,6 +11,8 @@
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlrenderer3.h"
 
+#include <chrono>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -18,6 +20,10 @@
 #include <ctime>
 #include <string>
 #include <vector>
+
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#endif
 
 // ---------------------------------------------------------------------------
 // Palette (dark chart surface). Series colors validated for contrast and CVD
@@ -131,10 +137,12 @@ struct SolarUTC {
     double dayLenMin;
 };
 
+static const double kPi = 3.14159265358979323846;
+
 static SolarUTC solarCalc(double latDeg, double lonDeg, int year, int doy) {
-    const double rad = M_PI / 180.0;
+    const double rad = kPi / 180.0;
     double nDays = isLeap(year) ? 366.0 : 365.0;
-    double g = 2.0 * M_PI / nDays * (doy - 1 + 0.5); // fractional year at 12:00
+    double g = 2.0 * kPi / nDays * (doy - 1 + 0.5); // fractional year at 12:00
 
     double eqtime = 229.18 * (0.000075 + 0.001868 * cos(g) - 0.032077 * sin(g)
                               - 0.014615 * cos(2 * g) - 0.040849 * sin(2 * g));
@@ -184,14 +192,67 @@ struct YearData {
     bool hasDst = false;
 };
 
+// A UTC instant expressed in the selected city's wall clock. On POSIX the
+// conversion goes through the TZ environment variable and the system tz
+// database; Windows has no IANA support in its C runtime, so there the C++20
+// chrono timezone database (backed by ICU) is used instead.
+struct LocalStamp {
+    float minOfDay;   // wall-clock minutes since local midnight
+    int offsetSec;    // UTC offset in effect
+    bool dst;         // summer time in effect
+    int wday, year, yday;
+};
+
+#ifdef _WIN32
+static const std::chrono::time_zone* g_tzZone = nullptr;
+
+static void setTZ(const char* tz) {
+    try { g_tzZone = std::chrono::locate_zone(tz); }
+    catch (...) { g_tzZone = nullptr; } // unknown zone: fall back to UTC
+}
+
+static LocalStamp toLocal(time_t t) {
+    using namespace std::chrono;
+    sys_seconds st{seconds{t}};
+    seconds off{0};
+    bool dst = false;
+    if (g_tzZone) {
+        sys_info info = g_tzZone->get_info(st);
+        off = info.offset;
+        dst = info.save != seconds{0};
+    }
+    local_seconds lt{(st + off).time_since_epoch()};
+    local_days ld = floor<days>(lt);
+    year_month_day ymd{ld};
+    LocalStamp s;
+    s.minOfDay = (float)((lt - ld).count() / 60.0);
+    s.offsetSec = (int)off.count();
+    s.dst = dst;
+    s.wday = (int)weekday{ld}.c_encoding();
+    s.year = (int)ymd.year();
+    s.yday = (int)(ld - local_days{ymd.year() / January / 1}).count();
+    return s;
+}
+#else
 static void setTZ(const char* tz) { setenv("TZ", tz, 1); tzset(); }
 
-static float localMinutesOfDay(time_t t, int* offsetSec, bool* dst) {
+static LocalStamp toLocal(time_t t) {
     struct tm lt;
     localtime_r(&t, &lt);
-    if (offsetSec) *offsetSec = (int)lt.tm_gmtoff;
-    if (dst) *dst = lt.tm_isdst > 0;
-    return (float)(lt.tm_hour * 60 + lt.tm_min) + (float)lt.tm_sec / 60.0f;
+    LocalStamp s;
+    s.minOfDay = (float)(lt.tm_hour * 60 + lt.tm_min) + (float)lt.tm_sec / 60.0f;
+    s.offsetSec = (int)lt.tm_gmtoff;
+    s.dst = lt.tm_isdst > 0;
+    s.wday = lt.tm_wday;
+    s.year = lt.tm_year + 1900;
+    s.yday = lt.tm_yday;
+    return s;
+}
+#endif
+
+static time_t utcMidnightJan1(int year) {
+    using namespace std::chrono;
+    return system_clock::to_time_t(sys_days{std::chrono::year{year} / 1 / 1});
 }
 
 static void computeYear(YearData& yd, int cityIdx, int year) {
@@ -205,9 +266,7 @@ static void computeYear(YearData& yd, int cityIdx, int year) {
     int nDays = isLeap(year) ? 366 : 365;
     yd.days.reserve(nDays);
 
-    struct tm tm0{};
-    tm0.tm_year = year - 1900; tm0.tm_mon = 0; tm0.tm_mday = 1;
-    time_t utcMidnight = timegm(&tm0);
+    time_t utcMidnight = utcMidnightJan1(year);
 
     int doy = 1, prevOffset = 0;
     yd.stdOffsetSec = 0; yd.dstOffsetSec = 0;
@@ -220,16 +279,15 @@ static void computeYear(YearData& yd, int cityIdx, int year) {
             r.dayLenMin = (float)s.dayLenMin;
 
             time_t noonT = utcMidnight + (time_t)llround(s.noonMin * 60.0);
-            struct tm lt;
-            localtime_r(&noonT, &lt);
-            r.dow = lt.tm_wday;
-            r.utcOffsetSec = (int)lt.tm_gmtoff;
-            r.dst = lt.tm_isdst > 0;
-            r.noonMin = (float)(lt.tm_hour * 60 + lt.tm_min) + (float)lt.tm_sec / 60.0f;
+            LocalStamp ls = toLocal(noonT);
+            r.dow = ls.wday;
+            r.utcOffsetSec = ls.offsetSec;
+            r.dst = ls.dst;
+            r.noonMin = ls.minOfDay;
 
             if (s.kind == DAY_NORMAL) {
-                r.riseMin = localMinutesOfDay(utcMidnight + (time_t)llround(s.riseMin * 60.0), nullptr, nullptr);
-                r.setMin  = localMinutesOfDay(utcMidnight + (time_t)llround(s.setMin * 60.0), nullptr, nullptr);
+                r.riseMin = toLocal(utcMidnight + (time_t)llround(s.riseMin * 60.0)).minOfDay;
+                r.setMin  = toLocal(utcMidnight + (time_t)llround(s.setMin * 60.0)).minOfDay;
             }
 
             if (doy > 1 && r.utcOffsetSec != prevOffset) {
@@ -371,11 +429,9 @@ static void drawMonthAxis(ImDrawList* dl, const PlotRect& p, int year, bool labe
 }
 
 static int dayIndexToday(const YearData& yd) {
-    time_t now = time(nullptr);
     setTZ(kCities[yd.cityIdx].tz);
-    struct tm lt; localtime_r(&now, &lt);
-    if (lt.tm_year + 1900 != yd.year) return -1;
-    return lt.tm_yday;
+    LocalStamp ls = toLocal(time(nullptr));
+    return ls.year == yd.year ? ls.yday : -1;
 }
 
 static void tooltipForDay(const YearData& yd, int i) {
@@ -926,8 +982,8 @@ int main(int argc, char** argv) {
     int year;
     {
         time_t now = time(nullptr);
-        struct tm lt; localtime_r(&now, &lt);
-        year = lt.tm_year + 1900;
+        struct tm* lt = localtime(&now); // system zone; TZ not yet touched
+        year = lt ? lt->tm_year + 1900 : 2026;
     }
     if (argc > 1 && strcmp(argv[1], "--selftest") == 0)
         return selfTest(argc > 2 ? atoi(argv[2]) : year);

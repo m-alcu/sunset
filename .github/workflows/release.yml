@@ -1,10 +1,11 @@
-# Publishes a GitHub Release with a Linux binary when a version tag is pushed:
+# Publishes a GitHub Release with Linux and Windows binaries when a version
+# tag is pushed:
 #
 #   git tag v1.0.0
 #   git push origin v1.0.0
 #
-# The tarball bundles libSDL3.so.0 next to the binary (linked with an $ORIGIN
-# rpath), so it runs on machines without SDL3 installed.
+# Both packages bundle the SDL3 library next to the binary (Linux links with
+# an $ORIGIN rpath), so they run on machines without SDL3 installed.
 name: Release
 
 on:
@@ -19,7 +20,7 @@ env:
   SDL_PREFIX: ${{ github.workspace }}/.sdl3-install
 
 jobs:
-  release:
+  release-linux:
     runs-on: ubuntu-latest
 
     steps:
@@ -75,3 +76,42 @@ jobs:
           sunset-${{ github.ref_name }}-linux-x86_64.tar.gz \
           --title "Sunrise & Sunset ${{ github.ref_name }}" \
           --generate-notes
+
+  release-windows:
+    runs-on: windows-latest
+    needs: release-linux # the linux job creates the release; this one adds to it
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download SDL3 (prebuilt VC package)
+      shell: pwsh
+      run: |
+        $ver = "${{ env.SDL_VERSION }}" -replace "release-", ""
+        Invoke-WebRequest "https://github.com/libsdl-org/SDL/releases/download/${{ env.SDL_VERSION }}/SDL3-devel-$ver-VC.zip" -OutFile sdl3.zip
+        Expand-Archive sdl3.zip -DestinationPath .
+        "SDL3_DIR_NAME=SDL3-$ver" >> $env:GITHUB_ENV
+
+    - name: Configure and build
+      run: |
+        cmake -B build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/${{ env.SDL3_DIR_NAME }} -S ${{ github.workspace }}
+        cmake --build build --config Release
+
+    - name: Package
+      shell: pwsh
+      run: |
+        mkdir dist
+        Copy-Item build/Release/sunset.exe dist/
+        Copy-Item "${{ env.SDL3_DIR_NAME }}/lib/x64/SDL3.dll" dist/
+        Copy-Item README.md dist/
+        Compress-Archive -Path dist/* -DestinationPath sunset-${{ github.ref_name }}-windows-x86_64.zip
+
+    - name: Verify packaged binary
+      shell: pwsh
+      run: ./dist/sunset.exe --selftest 2026
+
+    - name: Upload to GitHub Release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: pwsh
+      run: gh release upload "${{ github.ref_name }}" sunset-${{ github.ref_name }}-windows-x86_64.zip

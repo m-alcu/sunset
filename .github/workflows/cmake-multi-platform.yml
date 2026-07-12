@@ -1,9 +1,9 @@
-# Builds the app with GCC and Clang on Linux and runs the solar-math self-test.
+# Builds the app with GCC and Clang on Linux plus MSVC on Windows, and runs
+# the solar-math self-test on each.
 #
 # GitHub's ubuntu-latest image has no SDL3 package yet, so SDL3 is built from
 # source into a cached prefix; after the first run the cache makes this fast.
-# (Windows is not covered: the project locates SDL3 through pkg-config, which
-# the Windows runners don't provide.)
+# Windows uses the official prebuilt SDL3 VC devel package.
 name: CMake on multiple platforms
 
 on:
@@ -68,3 +68,32 @@ jobs:
     - name: Self-test
       # exercises the solar math and tz/DST conversion without needing a display
       run: LD_LIBRARY_PATH=${{ env.SDL_PREFIX }}/lib ${{ github.workspace }}/build/sunset --selftest 2026
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download SDL3 (prebuilt VC package)
+      shell: pwsh
+      run: |
+        $ver = "${{ env.SDL_VERSION }}" -replace "release-", ""
+        Invoke-WebRequest "https://github.com/libsdl-org/SDL/releases/download/${{ env.SDL_VERSION }}/SDL3-devel-$ver-VC.zip" -OutFile sdl3.zip
+        Expand-Archive sdl3.zip -DestinationPath .
+        "SDL3_DIR_NAME=SDL3-$ver" >> $env:GITHUB_ENV
+
+    - name: Configure CMake
+      run: >
+        cmake -B build
+        -DCMAKE_PREFIX_PATH=${{ github.workspace }}/${{ env.SDL3_DIR_NAME }}
+        -S ${{ github.workspace }}
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    - name: Self-test
+      shell: pwsh
+      run: |
+        Copy-Item "${{ env.SDL3_DIR_NAME }}/lib/x64/SDL3.dll" build/Release/
+        ./build/Release/sunset.exe --selftest 2026
