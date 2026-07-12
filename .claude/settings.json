@@ -18,7 +18,8 @@
       "Bash(python3 -c \"import zlib; print\\('zlib ok'\\)\")",
       "Bash(timeout 20 /home/marti/proy/sunset/build/sunset)",
       "Bash(python3 -)",
-      "Bash(SUNSET_TAB=table timeout 15 /home/marti/proy/sunset/build/sunset)"
+      "Bash(SUNSET_TAB=table timeout 15 /home/marti/proy/sunset/build/sunset)",
+      "Bash(timeout 15 /home/marti/proy/sunset/build/sunset)"
     ]
   }
 }

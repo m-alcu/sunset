@@ -39,6 +39,8 @@ static const ImU32 COL_DAYLEN   = RGBA(0x39, 0x87, 0xe5);   // day-length line
 static const ImU32 COL_DSTMARK  = RGBA(0x89, 0x87, 0x81, 170);
 static const ImU32 COL_TODAY    = RGBA(0xc3, 0xc2, 0xb7, 130);
 static const ImU32 COL_ROW_DST  = RGBA(0xc9, 0x85, 0x00, 34);
+static const ImU32 COL_PREWORK  = RGBA(0x19, 0x9e, 0x70);   // pre-work band
+static const ImU32 COL_LUNCH    = RGBA(0xd5, 0x51, 0x81);   // lunch band
 
 // ---------------------------------------------------------------------------
 // Cities
@@ -272,9 +274,17 @@ static void fmtOffset(char* buf, size_t n, int offsetSec) {
 // ---------------------------------------------------------------------------
 struct PlotRect { float x0, y0, x1, y1; float w() const { return x1 - x0; } float h() const { return y1 - y0; } };
 
+// user-defined wall-clock period overlaid on the daylight chart
+struct Band { bool enabled; int fromMin, toMin; const char* name; ImU32 col; };
+
 static void drawDashedV(ImDrawList* dl, float x, float y0, float y1, ImU32 col) {
     for (float y = y0; y < y1; y += 8.0f)
         dl->AddLine(ImVec2(x, y), ImVec2(x, fminf(y + 4.0f, y1)), col, 1.0f);
+}
+
+static void drawDashedH(ImDrawList* dl, float y, float x0, float x1, ImU32 col) {
+    for (float x = x0; x < x1; x += 8.0f)
+        dl->AddLine(ImVec2(x, y), ImVec2(fminf(x + 4.0f, x1), y), col, 1.0f);
 }
 
 // month grid + labels shared by both charts
@@ -323,7 +333,7 @@ static void tooltipForDay(const YearData& yd, int i) {
     ImGui::EndTooltip();
 }
 
-static void drawDaylightChart(const YearData& yd, float height) {
+static void drawDaylightChart(const YearData& yd, float height, const Band* bands, int nBands) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 org = ImGui::GetCursorScreenPos();
     float availW = ImGui::GetContentRegionAvail().x;
@@ -333,15 +343,35 @@ static void drawDaylightChart(const YearData& yd, float height) {
     PlotRect p{org.x + 44, org.y + 8, org.x + availW - 70, org.y + height - 22};
     int nDays = (int)yd.days.size();
     auto xOf = [&](float dayIdx) { return p.x0 + p.w() * dayIdx / nDays; };
-    auto yOf = [&](float min) { return p.y1 - p.h() * min / 1440.0f; };
+
+    // y-range fitted to the data, snapped to 3h gridlines (e.g. 06:00-24:00
+    // for Madrid), expanding for polar day or daylight crossing midnight
+    float loMin = 1440.0f, hiMin = 0.0f;
+    for (const DayRecord& r : yd.days) {
+        if (r.kind == DAY_POLAR_DAY || (r.kind == DAY_NORMAL && r.setMin < r.riseMin)) {
+            loMin = 0.0f; hiMin = 1440.0f;
+        } else if (r.kind == DAY_NORMAL) {
+            loMin = fminf(loMin, r.riseMin); hiMin = fmaxf(hiMin, r.setMin);
+        }
+    }
+    if (loMin > hiMin) { loMin = 0.0f; hiMin = 1440.0f; } // all polar night
+    for (int b = 0; b < nBands; b++)
+        if (bands[b].enabled) {
+            loMin = fminf(loMin, (float)bands[b].fromMin);
+            hiMin = fmaxf(hiMin, (float)bands[b].toMin);
+        }
+    loMin = fmaxf(0.0f, floorf(loMin / 180.0f) * 180.0f);
+    hiMin = fminf(1440.0f, ceilf(hiMin / 180.0f) * 180.0f);
+    float range = hiMin - loMin;
+    auto yOf = [&](float min) { return p.y1 - p.h() * (min - loMin) / range; };
 
     dl->AddRectFilled(ImVec2(p.x0, p.y0), ImVec2(p.x1, p.y1), COL_SURFACE, 3.0f);
 
     // hour grid, every 3h
     char buf[32];
-    for (int h = 0; h <= 24; h += 3) {
+    for (int h = (int)loMin / 60; h <= (int)hiMin / 60; h += 3) {
         float y = yOf(h * 60.0f);
-        if (h > 0 && h < 24) dl->AddLine(ImVec2(p.x0, y), ImVec2(p.x1, y), COL_GRID, 1.0f);
+        if (h * 60 > loMin && h * 60 < hiMin) dl->AddLine(ImVec2(p.x0, y), ImVec2(p.x1, y), COL_GRID, 1.0f);
         snprintf(buf, sizeof buf, "%02d", h);
         ImVec2 ts = ImGui::CalcTextSize(buf);
         dl->AddText(ImVec2(p.x0 - ts.x - 8, y - ts.y * 0.5f), COL_MUTED, buf);
@@ -362,6 +392,19 @@ static void drawDaylightChart(const YearData& yd, float height) {
                 dl->AddRectFilled(ImVec2(x0, p.y0), ImVec2(x1, yOf(r.riseMin)), COL_DAYFILL);
             }
         }
+    }
+
+    // user period bands (pre-work, lunch): translucent fill + dashed bounds
+    for (int b = 0; b < nBands; b++) {
+        if (!bands[b].enabled) continue;
+        float yTop = yOf((float)bands[b].toMin), yBot = yOf((float)bands[b].fromMin);
+        ImU32 fill = (bands[b].col & 0x00ffffff) | (28u << 24);
+        dl->AddRectFilled(ImVec2(p.x0, yTop), ImVec2(p.x1, yBot), fill);
+        drawDashedH(dl, yTop, p.x0, p.x1, bands[b].col);
+        drawDashedH(dl, yBot, p.x0, p.x1, bands[b].col);
+        dl->AddLine(ImVec2(p.x0 + 6, yTop + 4), ImVec2(p.x0 + 6, yBot - 4), bands[b].col, 3.0f);
+        dl->AddText(ImVec2(p.x0 + 12, (yTop + yBot - ImGui::GetTextLineHeight()) * 0.5f),
+                    COL_INK2, bands[b].name);
     }
 
     // sunrise / sunset polylines, broken at DST jumps and polar gaps
@@ -575,6 +618,31 @@ static bool cityCombo(int* cityIdx) {
     return changed;
 }
 
+// slider showing minutes-of-day as HH:MM, stepped to 15 min
+static bool timeSlider(const char* id, int* minutes) {
+    char fmt[8];
+    fmtHM(fmt, sizeof fmt, (float)*minutes);
+    ImGui::SetNextItemWidth(100);
+    bool ch = ImGui::SliderInt(id, minutes, 0, 1440, fmt, ImGuiSliderFlags_AlwaysClamp);
+    if (ch) *minutes = (*minutes / 15) * 15;
+    return ch;
+}
+
+static void bandControls(Band& b) {
+    ImGui::Checkbox(b.name, &b.enabled);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!b.enabled);
+    char id[32];
+    snprintf(id, sizeof id, "##%s_from", b.name);
+    timeSlider(id, &b.fromMin);
+    ImGui::SameLine(0, 4); ImGui::TextColored(ImColor(COL_MUTED), "-"); ImGui::SameLine(0, 4);
+    snprintf(id, sizeof id, "##%s_to", b.name);
+    timeSlider(id, &b.toMin);
+    ImGui::EndDisabled();
+    if (b.fromMin > 1425) b.fromMin = 1425;
+    if (b.toMin <= b.fromMin) b.toMin = b.fromMin + 15;
+}
+
 static void drawUI(YearData& yd, int* cityIdx, int* year) {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
@@ -650,6 +718,13 @@ static void drawUI(YearData& yd, int* cityIdx, int* year) {
 
     if (ImGui::BeginTabBar("views")) {
         if (ImGui::BeginTabItem("Chart")) {
+            static Band bands[2] = {
+                {true, 7 * 60, 9 * 60, "Pre-work", COL_PREWORK},
+                {true, 13 * 60, 15 * 60, "Lunch", COL_LUNCH},
+            };
+            bandControls(bands[0]); ImGui::SameLine(0, 24);
+            bandControls(bands[1]);
+
             // legend
             auto legendDot = [](ImU32 col, const char* txt) {
                 ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -663,13 +738,15 @@ static void drawUI(YearData& yd, int* cityIdx, int* year) {
             legendDot(COL_SET, "Sunset");
             legendDot(COL_DAYFILL, "Daylight");
             legendDot(COL_DSTMARK, "Clock change");
+            for (const Band& b : bands)
+                if (b.enabled) legendDot(b.col, b.name);
             ImGui::NewLine();
 
             float avail = ImGui::GetContentRegionAvail().y;
             float miniH = 140.0f;
             float mainH = avail - miniH - 8.0f;
             if (mainH < 220.0f) mainH = 220.0f;
-            drawDaylightChart(yd, mainH);
+            drawDaylightChart(yd, mainH, bands, 2);
             ImGui::Spacing();
             drawDayLengthChart(yd, miniH);
             ImGui::EndTabItem();
