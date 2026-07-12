@@ -1,0 +1,7 @@
+# CMake build trees
+build/
+cmake-build-*/
+
+# runtime-generated user settings
+config.ini
+imgui.ini

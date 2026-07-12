@@ -1,3 +1,0 @@
-/home/marti/proy/sunset/build/CMakeFiles/sunset.dir
-/home/marti/proy/sunset/build/CMakeFiles/edit_cache.dir
-/home/marti/proy/sunset/build/CMakeFiles/rebuild_cache.dir
