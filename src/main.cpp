@@ -65,6 +65,7 @@ static const City kCities[] = {
     {"Bogota","Colombia",4.7110,-74.0721,"America/Bogota"},
     {"Buenos Aires","Argentina",-34.6037,-58.3816,"America/Argentina/Buenos_Aires"},
     {"Cairo","Egypt",30.0444,31.2357,"Africa/Cairo"},
+    {"Castelldefels","Spain",41.2790,1.9767,"Europe/Madrid"},
     {"Chicago","USA",41.8781,-87.6298,"America/Chicago"},
     {"Delhi","India",28.7041,77.1025,"Asia/Kolkata"},
     {"Denver","USA",39.7392,-104.9903,"America/Denver"},
@@ -285,11 +286,19 @@ static Band g_bands[3] = {
 };
 static const int kNumBands = 3;
 static const char* kConfigPath = "config.ini";
+static int g_cityIdx = -1;
+
+static int findCity(const char* name) {
+    for (int i = 0; i < kNumCities; i++)
+        if (strcasecmp(kCities[i].name, name) == 0) return i;
+    return -1;
+}
 
 static void saveConfig() {
     FILE* f = fopen(kConfigPath, "w");
     if (!f) return;
-    fprintf(f, "# Sunrise & Sunset - period bands shown on the chart (times as HH:MM)\n[bands]\n");
+    fprintf(f, "# Sunrise & Sunset settings\n[general]\ncity=%s\n", kCities[g_cityIdx].name);
+    fprintf(f, "\n# period bands shown on the chart (times as HH:MM)\n[bands]\n");
     for (const Band& b : g_bands)
         fprintf(f, "%s_enabled=%d\n%s_from=%02d:%02d\n%s_to=%02d:%02d\n",
                 b.key, b.enabled ? 1 : 0,
@@ -299,6 +308,7 @@ static void saveConfig() {
 }
 
 static void loadConfig() {
+    g_cityIdx = findCity("Castelldefels");
     FILE* f = fopen(kConfigPath, "r");
     if (!f) { saveConfig(); return; } // first run: write the defaults
     char line[128];
@@ -308,6 +318,11 @@ static void loadConfig() {
         *eq = 0;
         char* val = eq + 1;
         val[strcspn(val, "\r\n")] = 0;
+        if (!strcmp(line, "city")) {
+            int i = findCity(val);
+            if (i >= 0) g_cityIdx = i;
+            continue;
+        }
         for (Band& b : g_bands) {
             char k[48];
             int h, m;
@@ -707,7 +722,7 @@ static void drawUI(YearData& yd, int* cityIdx, int* year) {
 
     ImGui::AlignTextToFramePadding();
     ImGui::TextColored(ImColor(COL_INK2), "City"); ImGui::SameLine();
-    dirty |= cityCombo(cityIdx);
+    if (cityCombo(cityIdx)) { dirty = true; saveConfig(); } // remember as default
     ImGui::SameLine(0, 18);
     ImGui::TextColored(ImColor(COL_INK2), "Year"); ImGui::SameLine();
     ImGui::SetNextItemWidth(120);
@@ -918,6 +933,7 @@ int main(int argc, char** argv) {
         return selfTest(argc > 2 ? atoi(argv[2]) : year);
 
     loadConfig();
+    saveConfig(); // ensure the file exists and carries any newly added keys
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
@@ -954,11 +970,8 @@ int main(int argc, char** argv) {
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
 
-    int cityIdx = 0;
-    for (int i = 0; i < kNumCities; i++)
-        if (strcmp(kCities[i].name, "Madrid") == 0) { cityIdx = i; break; }
     YearData yd;
-    computeYear(yd, cityIdx, year);
+    computeYear(yd, g_cityIdx, year);
 
     bool running = true;
     while (running) {
@@ -972,7 +985,7 @@ int main(int argc, char** argv) {
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        drawUI(yd, &cityIdx, &year);
+        drawUI(yd, &g_cityIdx, &year);
         ImGui::Render();
 
         ImVec4 bg = ImGui::ColorConvertU32ToFloat4(COL_PAGE);

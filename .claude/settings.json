@@ -24,7 +24,9 @@
       "Bash(ps -eo pid,lstart,cmd)",
       "Bash(xwininfo -root -tree)",
       "Bash(timeout 25 /home/marti/proy/sunset/build/sunset)",
-      "Bash(timeout 30 /home/marti/proy/sunset/build/sunset)"
+      "Bash(timeout 30 /home/marti/proy/sunset/build/sunset)",
+      "Bash(sed -i 's/city=Castelldefels/city=tokyo/' config.ini)",
+      "Bash(timeout 3 ./build/sunset)"
     ]
   }
 }
