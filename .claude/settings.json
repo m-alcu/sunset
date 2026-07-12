@@ -28,7 +28,11 @@
       "Bash(sed -i 's/city=Castelldefels/city=tokyo/' config.ini)",
       "Bash(timeout 3 ./build/sunset)",
       "Bash(git rm *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(cmake -B rpath-test -DCMAKE_BUILD_TYPE=Release '-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath,$ORIGIN' -S /home/marti/proy/sunset)",
+      "Bash(cmake --build rpath-test -j8)",
+      "Bash(readelf -d rpath-test/sunset)",
+      "Bash(./rpath-test/sunset --selftest 2026)"
     ]
   }
 }

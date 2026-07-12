@@ -1,0 +1,77 @@
+# Publishes a GitHub Release with a Linux binary when a version tag is pushed:
+#
+#   git tag v1.0.0
+#   git push origin v1.0.0
+#
+# The tarball bundles libSDL3.so.0 next to the binary (linked with an $ORIGIN
+# rpath), so it runs on machines without SDL3 installed.
+name: Release
+
+on:
+  push:
+    tags: [ "v*" ]
+
+permissions:
+  contents: write
+
+env:
+  SDL_VERSION: release-3.2.16
+  SDL_PREFIX: ${{ github.workspace }}/.sdl3-install
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Cache SDL3
+      id: cache-sdl3
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.SDL_PREFIX }}
+        key: sdl3-${{ env.SDL_VERSION }}-${{ runner.os }}
+
+    - name: Build SDL3 from source
+      if: steps.cache-sdl3.outputs.cache-hit != 'true'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ninja-build libx11-dev libxext-dev libwayland-dev libxkbcommon-dev libegl1-mesa-dev
+        git clone --depth 1 --branch ${{ env.SDL_VERSION }} https://github.com/libsdl-org/SDL sdl-src
+        cmake -S sdl-src -B sdl-src/build -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=${{ env.SDL_PREFIX }} \
+          -DCMAKE_INSTALL_LIBDIR=lib \
+          -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+        cmake --build sdl-src/build
+        cmake --install sdl-src/build
+
+    - name: Configure and build
+      # $ORIGIN rpath makes the binary look for libSDL3 next to itself first
+      run: |
+        PKG_CONFIG_PATH=${{ env.SDL_PREFIX }}/lib/pkgconfig cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_EXE_LINKER_FLAGS='-Wl,-rpath,$ORIGIN' \
+          -S .
+        cmake --build build -j
+
+    - name: Package
+      run: |
+        mkdir dist
+        cp build/sunset dist/
+        cp -L ${{ env.SDL_PREFIX }}/lib/libSDL3.so.0 dist/
+        cp README.md dist/
+        tar czf sunset-${{ github.ref_name }}-linux-x86_64.tar.gz -C dist .
+
+    - name: Verify packaged binary
+      # must find the bundled libSDL3 via rpath, with SDL_PREFIX not on the path
+      run: ./dist/sunset --selftest 2026
+
+    - name: Create GitHub Release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release create "${{ github.ref_name }}" \
+          sunset-${{ github.ref_name }}-linux-x86_64.tar.gz \
+          --title "Sunrise & Sunset ${{ github.ref_name }}" \
+          --generate-notes
