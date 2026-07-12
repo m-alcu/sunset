@@ -3,6 +3,8 @@
 Desktop app (SDL3 + Dear ImGui) that shows sunrise and sunset times for a
 chosen city across a whole year, as a daylight chart and as a day-by-day table.
 
+![sunrise-sunset - view](assets/Screen.png)
+
 - Solar times are computed with the NOAA solar-position algorithm (accuracy
   about ±1–2 minutes) in UTC.
 - Conversion to the city's wall clock goes through the system tz database
