@@ -1,3 +1,5 @@
+![CI](https://github.com/m-alcu/sunset/actions/workflows/cmake-multi-platform.yml/badge.svg)
+
 # Sunrise & Sunset
 
 Desktop app (SDL3 + Dear ImGui) that shows sunrise and sunset times for a
