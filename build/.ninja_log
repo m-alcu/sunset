@@ -1,0 +1,9 @@
+# ninja log v5
+2	91	1783877920972439843	CMakeFiles/sunset.dir/src/vendor/imgui/imgui_impl_sdlrenderer3.cpp.o	acfe1a6c9f834d14
+2	113	1783877920994440448	CMakeFiles/sunset.dir/src/vendor/imgui/imgui_impl_sdl3.cpp.o	e52fddb88fac6683
+1	442	1783877921322449457	CMakeFiles/sunset.dir/src/main.cpp.o	f7ddb8b74dc4ccfe
+1	716	1783877921596456982	CMakeFiles/sunset.dir/src/vendor/imgui/imgui_tables.cpp.o	7c8fb20b4a2b2c09
+1	954	1783877921834463519	CMakeFiles/sunset.dir/src/vendor/imgui/imgui_draw.cpp.o	21406626cc1cff40
+2	1164	1783877922043469258	CMakeFiles/sunset.dir/src/vendor/imgui/imgui_widgets.cpp.o	da53b016f7480ed6
+1	1397	1783877922276475651	CMakeFiles/sunset.dir/src/vendor/imgui/imgui.cpp.o	9211e44d3b60efb3
+1397	1471	1783877922350477681	sunset	78b2db9bd916da65

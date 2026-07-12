@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(dataviz)",
+      "Skill(dataviz:*)",
+      "Bash(node scripts/validate_palette.js \"#c98500,#9085e9\" --mode dark --surface \"#1a1a19\")",
+      "Bash(pkg-config --modversion sdl3)",
+      "Read(//usr/share/zoneinfo/Europe/**)",
+      "Bash(cmake --version)",
+      "Bash(g++ --version)",
+      "Bash(which nodejs *)",
+      "Read(//usr/local/bin/**)",
+      "Bash(python3 /tmp/claude-1000/-home-marti-proy-sunset/85ea81f5-66c4-4686-9186-6a14da61b5e2/scratchpad/palcheck.py)",
+      "Bash(/home/marti/proy/sunset/build/sunset --selftest 2026)",
+      "Read(//usr/bin/**)",
+      "Bash(grep -i -E '^\\(magick|convert|ffmpeg|xwd\\)$')",
+      "Bash(python3 -c \"import PIL; print\\('PIL ok'\\)\")",
+      "Bash(python3 -c \"import zlib; print\\('zlib ok'\\)\")",
+      "Bash(timeout 20 /home/marti/proy/sunset/build/sunset)",
+      "Bash(python3 -)",
+      "Bash(SUNSET_TAB=table timeout 15 /home/marti/proy/sunset/build/sunset)"
+    ]
+  }
+}
