@@ -41,6 +41,7 @@ static const ImU32 COL_TODAY    = RGBA(0xc3, 0xc2, 0xb7, 130);
 static const ImU32 COL_ROW_DST  = RGBA(0xc9, 0x85, 0x00, 34);
 static const ImU32 COL_PREWORK  = RGBA(0x19, 0x9e, 0x70);   // pre-work band
 static const ImU32 COL_LUNCH    = RGBA(0xd5, 0x51, 0x81);   // lunch band
+static const ImU32 COL_AFTNOON  = RGBA(0x00, 0x83, 0x00);   // afternoon band
 
 // ---------------------------------------------------------------------------
 // Cities
@@ -275,7 +276,57 @@ static void fmtOffset(char* buf, size_t n, int offsetSec) {
 struct PlotRect { float x0, y0, x1, y1; float w() const { return x1 - x0; } float h() const { return y1 - y0; } };
 
 // user-defined wall-clock period overlaid on the daylight chart
-struct Band { bool enabled; int fromMin, toMin; const char* name; ImU32 col; };
+struct Band { bool enabled; int fromMin, toMin; const char* name; const char* key; ImU32 col; };
+
+static Band g_bands[3] = {
+    {true, 7 * 60, 9 * 60, "Pre-work", "prework", COL_PREWORK},
+    {true, 13 * 60, 15 * 60, "Lunch", "lunch", COL_LUNCH},
+    {true, 17 * 60, 19 * 60, "Afternoon", "afternoon", COL_AFTNOON},
+};
+static const int kNumBands = 3;
+static const char* kConfigPath = "config.ini";
+
+static void saveConfig() {
+    FILE* f = fopen(kConfigPath, "w");
+    if (!f) return;
+    fprintf(f, "# Sunrise & Sunset - period bands shown on the chart (times as HH:MM)\n[bands]\n");
+    for (const Band& b : g_bands)
+        fprintf(f, "%s_enabled=%d\n%s_from=%02d:%02d\n%s_to=%02d:%02d\n",
+                b.key, b.enabled ? 1 : 0,
+                b.key, b.fromMin / 60, b.fromMin % 60,
+                b.key, b.toMin / 60, b.toMin % 60);
+    fclose(f);
+}
+
+static void loadConfig() {
+    FILE* f = fopen(kConfigPath, "r");
+    if (!f) { saveConfig(); return; } // first run: write the defaults
+    char line[128];
+    while (fgets(line, sizeof line, f)) {
+        char* eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char* val = eq + 1;
+        val[strcspn(val, "\r\n")] = 0;
+        for (Band& b : g_bands) {
+            char k[48];
+            int h, m;
+            snprintf(k, sizeof k, "%s_enabled", b.key);
+            if (!strcmp(line, k)) { b.enabled = atoi(val) != 0; break; }
+            snprintf(k, sizeof k, "%s_from", b.key);
+            if (!strcmp(line, k) && sscanf(val, "%d:%d", &h, &m) == 2) { b.fromMin = h * 60 + m; break; }
+            snprintf(k, sizeof k, "%s_to", b.key);
+            if (!strcmp(line, k) && sscanf(val, "%d:%d", &h, &m) == 2) { b.toMin = h * 60 + m; break; }
+        }
+    }
+    fclose(f);
+    for (Band& b : g_bands) {
+        if (b.fromMin < 0) b.fromMin = 0;
+        if (b.fromMin > 1425) b.fromMin = 1425;
+        if (b.toMin > 1440) b.toMin = 1440;
+        if (b.toMin <= b.fromMin) b.toMin = b.fromMin + 15;
+    }
+}
 
 static void drawDashedV(ImDrawList* dl, float x, float y0, float y1, ImU32 col) {
     for (float y = y0; y < y1; y += 8.0f)
@@ -628,19 +679,20 @@ static bool timeSlider(const char* id, int* minutes) {
     return ch;
 }
 
-static void bandControls(Band& b) {
-    ImGui::Checkbox(b.name, &b.enabled);
+static bool bandControls(Band& b) {
+    bool ch = ImGui::Checkbox(b.name, &b.enabled);
     ImGui::SameLine();
     ImGui::BeginDisabled(!b.enabled);
     char id[32];
-    snprintf(id, sizeof id, "##%s_from", b.name);
-    timeSlider(id, &b.fromMin);
+    snprintf(id, sizeof id, "##%s_from", b.key);
+    ch |= timeSlider(id, &b.fromMin);
     ImGui::SameLine(0, 4); ImGui::TextColored(ImColor(COL_MUTED), "-"); ImGui::SameLine(0, 4);
-    snprintf(id, sizeof id, "##%s_to", b.name);
-    timeSlider(id, &b.toMin);
+    snprintf(id, sizeof id, "##%s_to", b.key);
+    ch |= timeSlider(id, &b.toMin);
     ImGui::EndDisabled();
     if (b.fromMin > 1425) b.fromMin = 1425;
     if (b.toMin <= b.fromMin) b.toMin = b.fromMin + 15;
+    return ch;
 }
 
 static void drawUI(YearData& yd, int* cityIdx, int* year) {
@@ -718,12 +770,12 @@ static void drawUI(YearData& yd, int* cityIdx, int* year) {
 
     if (ImGui::BeginTabBar("views")) {
         if (ImGui::BeginTabItem("Chart")) {
-            static Band bands[2] = {
-                {true, 7 * 60, 9 * 60, "Pre-work", COL_PREWORK},
-                {true, 13 * 60, 15 * 60, "Lunch", COL_LUNCH},
-            };
-            bandControls(bands[0]); ImGui::SameLine(0, 24);
-            bandControls(bands[1]);
+            bool bandsChanged = false;
+            for (int b = 0; b < kNumBands; b++) {
+                if (b > 0) ImGui::SameLine(0, 24);
+                bandsChanged |= bandControls(g_bands[b]);
+            }
+            if (bandsChanged) saveConfig(); // persist user values as the new defaults
 
             // legend
             auto legendDot = [](ImU32 col, const char* txt) {
@@ -738,7 +790,7 @@ static void drawUI(YearData& yd, int* cityIdx, int* year) {
             legendDot(COL_SET, "Sunset");
             legendDot(COL_DAYFILL, "Daylight");
             legendDot(COL_DSTMARK, "Clock change");
-            for (const Band& b : bands)
+            for (const Band& b : g_bands)
                 if (b.enabled) legendDot(b.col, b.name);
             ImGui::NewLine();
 
@@ -746,7 +798,7 @@ static void drawUI(YearData& yd, int* cityIdx, int* year) {
             float miniH = 140.0f;
             float mainH = avail - miniH - 8.0f;
             if (mainH < 220.0f) mainH = 220.0f;
-            drawDaylightChart(yd, mainH, bands, 2);
+            drawDaylightChart(yd, mainH, g_bands, kNumBands);
             ImGui::Spacing();
             drawDayLengthChart(yd, miniH);
             ImGui::EndTabItem();
@@ -864,6 +916,8 @@ int main(int argc, char** argv) {
     }
     if (argc > 1 && strcmp(argv[1], "--selftest") == 0)
         return selfTest(argc > 2 ? atoi(argv[2]) : year);
+
+    loadConfig();
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());

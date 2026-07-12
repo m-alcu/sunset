@@ -24,6 +24,10 @@ cmake --build build -j
 - Pick a city (type in the combo to filter) and a year (1900–2100).
 - **Chart** tab: daylight band with sunrise/sunset curves (local wall-clock
   time) and a day-length chart below. Hover for exact values per day.
+- Three configurable period bands (pre-work, lunch, afternoon) overlay the
+  chart to show which parts of those periods have daylight through the year.
+  Toggle and adjust them above the chart; values persist in `config.ini`
+  (created next to the working directory on first run, editable by hand).
 - **Table** tab: every day with sunrise, sunset, solar noon, day length,
   change vs the previous day, and UTC offset; filter by month.
 - `./build/sunset --selftest [year]` prints solstice values and clock-change
