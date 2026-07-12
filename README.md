@@ -17,6 +17,32 @@ chosen city across a whole year, as a daylight chart and as a day-by-day table.
 
 ## Build
 
+### Prerequisites on Linux: SDL3
+
+The project needs the SDL3 development files, found through `pkg-config`. On
+recent distributions install the package:
+
+```sh
+sudo apt install libsdl3-dev        # Ubuntu 24.10+ / Debian 13
+sudo dnf install SDL3-devel         # Fedora 40+
+sudo pacman -S sdl3                 # Arch
+```
+
+On distributions without an SDL3 package yet (e.g. Ubuntu 24.04), build it
+from source once — it installs to `/usr/local`:
+
+```sh
+sudo apt install build-essential cmake git pkg-config \
+  libx11-dev libxext-dev libwayland-dev libxkbcommon-dev libegl1-mesa-dev
+git clone --depth 1 --branch release-3.2.16 https://github.com/libsdl-org/SDL
+cmake -S SDL -B SDL/build -DCMAKE_BUILD_TYPE=Release -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+cmake --build SDL/build -j
+sudo cmake --install SDL/build
+sudo ldconfig
+```
+
+### Building the app
+
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
